@@ -1,4 +1,4 @@
-const API_URL = "web-production-21127.up.railway.app"
+const API_URL = "https://web-production-21127.up.railway.app"
 
 function isProductPage() {
   return (
