@@ -1,4 +1,4 @@
-const API_URL = "http://127.0.0.1:8000"
+const API_URL = "web-production-21127.up.railway.app"
 
 function isProductPage() {
   return (
