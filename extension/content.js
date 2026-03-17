@@ -66,7 +66,27 @@ function createWidget(data) {
       <span style="font-size:12px;color:#9ca3af">${data.days_tracked} days tracked</span>
     </div>
   `
+  const tag = "sagarteja30-21"
+const cleanUrl = window.location.href.split("?")[0]
+const affiliateUrl = cleanUrl + "?tag=" + tag
 
+const btn = document.createElement("a")
+btn.href = affiliateUrl
+btn.target = "_blank"
+btn.style.cssText = `
+  display:block;
+  margin-top:12px;
+  background:#ff9900;
+  color:white;
+  text-align:center;
+  padding:10px;
+  border-radius:8px;
+  text-decoration:none;
+  font-weight:600;
+  font-size:14px;
+`
+btn.textContent = "Buy now via PriceSpy"
+widget.appendChild(btn)
   document.body.appendChild(widget)
 }
 
