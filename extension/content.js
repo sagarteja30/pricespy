@@ -1,19 +1,26 @@
 const API_URL = "https://web-production-21127.up.railway.app"
 
+console.log("PriceSpy: script loaded")
+
 function isProductPage() {
-  return (
+  const result = (
     window.location.href.includes("/dp/") ||
     window.location.href.includes("flipkart.com/p/")
   )
+  console.log("PriceSpy: is product page?", result)
+  return result
 }
 
 function getPriceFromPage() {
   const el = document.querySelector(".a-price-whole")
+  console.log("PriceSpy: price element found?", el)
   if (el) {
     const text = el.innerText || el.textContent
+    console.log("PriceSpy: raw price text:", text)
     const cleaned = text.replace(/[₹,.\s]/g, "").trim()
+    console.log("PriceSpy: cleaned price:", cleaned)
     const price = parseFloat(cleaned)
-    console.log("PriceSpy found price:", price)
+    console.log("PriceSpy: final price:", price)
     if (price > 0) return price
   }
   return null
@@ -25,6 +32,7 @@ function getTitleFromPage() {
 }
 
 function createWidget(data) {
+  console.log("PriceSpy: creating widget with data:", data)
   const existing = document.getElementById("pricespy-widget")
   if (existing) existing.remove()
 
@@ -53,12 +61,10 @@ function createWidget(data) {
       <button onclick="this.parentElement.parentElement.remove()"
         style="background:none;border:none;cursor:pointer;font-size:18px;color:#9ca3af">x</button>
     </div>
-
     <div style="font-size:24px;font-weight:700;color:${color};margin-bottom:4px">
       ${arrow} ${data.recommendation}
     </div>
     <div style="font-size:13px;color:#6b7280;margin-bottom:12px">${data.reason}</div>
-
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
       <div style="background:#f9fafb;padding:8px;border-radius:8px;text-align:center">
         <div style="font-size:11px;color:#9ca3af">Current</div>
@@ -71,13 +77,11 @@ function createWidget(data) {
         </div>
       </div>
     </div>
-
     <div style="background:#f0fdf4;padding:8px;border-radius:8px;margin-bottom:12px">
       <div style="font-size:12px;color:#16a34a">
         30-day low: Rs.${data.best_price_30d}
       </div>
     </div>
-
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
       <span style="font-size:12px;color:#9ca3af">Confidence: ${data.confidence}%</span>
       <span style="font-size:12px;color:#9ca3af">${data.days_tracked} days tracked</span>
@@ -87,7 +91,6 @@ function createWidget(data) {
   const tag = "sagarteja30-21"
   const cleanUrl = window.location.href.split("?")[0]
   const affiliateUrl = cleanUrl + "?tag=" + tag
-
   const btn = document.createElement("a")
   btn.href = affiliateUrl
   btn.target = "_blank"
@@ -105,7 +108,37 @@ function createWidget(data) {
   `
   btn.textContent = "Buy now via PriceSpy"
   widget.appendChild(btn)
-
   document.body.appendChild(widget)
+  console.log("PriceSpy: widget added to page")
 }
 
+async function analyzePage() {
+  console.log("PriceSpy: analyzePage called")
+  if (!isProductPage()) return
+
+  const price = getPriceFromPage()
+  const title = getTitleFromPage()
+  console.log("PriceSpy: price =", price, "title =", title)
+
+  if (!price) {
+    console.log("PriceSpy: no price found, stopping")
+    return
+  }
+
+  try {
+    console.log("PriceSpy: calling API...")
+    const res = await fetch(API_URL + "/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: window.location.href, price: price, title: title })
+    })
+    console.log("PriceSpy: API response status:", res.status)
+    const data = await res.json()
+    console.log("PriceSpy: API data:", data)
+    createWidget(data)
+  } catch (err) {
+    console.log("PriceSpy: ERROR:", err)
+  }
+}
+
+setTimeout(analyzePage, 3000)
