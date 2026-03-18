@@ -2,10 +2,16 @@ const API_URL = "https://web-production-21127.up.railway.app"
 
 console.log("PriceSpy: script loaded")
 
+
 function isProductPage() {
+  const url = window.location.href
   const result = (
-    window.location.href.includes("/dp/") ||
-    window.location.href.includes("flipkart.com/p/")
+    url.includes("/dp/") ||
+    url.includes("/gp/product/") ||
+    url.includes("/gp/aw/d/") ||
+    url.includes("flipkart.com/p/") ||
+    document.getElementById("productTitle") !== null ||
+    document.querySelector(".a-price-whole") !== null
   )
   console.log("PriceSpy: is product page?", result)
   return result
