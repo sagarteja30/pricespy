@@ -7,6 +7,31 @@ function isProductPage() {
   )
 }
 
+function getPriceFromPage() {
+  const selectors = [
+    ".a-price-whole",
+    "#priceblock_ourprice",
+    "#priceblock_dealprice",
+    ".a-offscreen",
+    "#corePrice_feature_div .a-price-whole"
+  ]
+  for (const sel of selectors) {
+    const el = document.querySelector(sel)
+    if (el) {
+      const text = el.innerText || el.textContent
+      const cleaned = text.replace(/[₹,. ]/g, "").trim()
+      const price = parseFloat(cleaned)
+      if (price > 0) return price
+    }
+  }
+  return null
+}
+
+function getTitleFromPage() {
+  const el = document.getElementById("productTitle")
+  return el ? el.innerText.trim().slice(0, 80) : "Unknown Product"
+}
+
 function createWidget(data) {
   const existing = document.getElementById("pricespy-widget")
   if (existing) existing.remove()
@@ -61,50 +86,34 @@ function createWidget(data) {
       </div>
     </div>
 
-    <div style="display:flex;align-items:center;justify-content:space-between">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
       <span style="font-size:12px;color:#9ca3af">Confidence: ${data.confidence}%</span>
       <span style="font-size:12px;color:#9ca3af">${data.days_tracked} days tracked</span>
     </div>
   `
-  const tag = "sagarteja30-21"
-const cleanUrl = window.location.href.split("?")[0]
-const affiliateUrl = cleanUrl + "?tag=" + tag
 
-const btn = document.createElement("a")
-btn.href = affiliateUrl
-btn.target = "_blank"
-btn.style.cssText = `
-  display:block;
-  margin-top:12px;
-  background:#ff9900;
-  color:white;
-  text-align:center;
-  padding:10px;
-  border-radius:8px;
-  text-decoration:none;
-  font-weight:600;
-  font-size:14px;
-`
-btn.textContent = "Buy now via PriceSpy"
-widget.appendChild(btn)
+  const tag = "300028-21"
+  const cleanUrl = window.location.href.split("?")[0]
+  const affiliateUrl = cleanUrl + "?tag=" + tag
+
+  const btn = document.createElement("a")
+  btn.href = affiliateUrl
+  btn.target = "_blank"
+  btn.style.cssText = `
+    display:block;
+    margin-top:12px;
+    background:#ff9900;
+    color:white;
+    text-align:center;
+    padding:10px;
+    border-radius:8px;
+    text-decoration:none;
+    font-weight:600;
+    font-size:14px;
+  `
+  btn.textContent = "Buy now via PriceSpy"
+  widget.appendChild(btn)
+
   document.body.appendChild(widget)
 }
-
-async function analyzePage() {
-  if (!isProductPage()) return
-
-  try {
-    const res = await fetch(API_URL + "/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: window.location.href })
-    })
-    const data = await res.json()
-    if (!data.error) createWidget(data)
-  } catch (err) {
-    console.log("PriceSpy error:", err)
-  }
-}
-
-setTimeout(analyzePage, 2000)
 
