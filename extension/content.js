@@ -112,6 +112,14 @@ function createWidget(data) {
   console.log("PriceSpy: widget added to page")
 }
 
+
+function keepWidgetAlive() {
+  const existing = document.getElementById("pricespy-widget")
+  if (!existing && window._priceSpyData) {
+    createWidget(window._priceSpyData)
+  }
+}
+
 async function analyzePage() {
   console.log("PriceSpy: analyzePage called")
   if (!isProductPage()) return
@@ -135,10 +143,18 @@ async function analyzePage() {
     console.log("PriceSpy: API response status:", res.status)
     const data = await res.json()
     console.log("PriceSpy: API data:", data)
+    
+    window._priceSpyData = data
     createWidget(data)
+    
+    // Keep checking every second if widget got removed
+    setInterval(keepWidgetAlive, 1000)
+    
   } catch (err) {
     console.log("PriceSpy: ERROR:", err)
   }
 }
 
-setTimeout(analyzePage, 3000)
+// Try multiple times as page loads
+setTimeout(analyzePage, 2000)
+setTimeout(analyzePage, 5000)
