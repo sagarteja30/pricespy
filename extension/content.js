@@ -8,21 +8,12 @@ function isProductPage() {
 }
 
 function getPriceFromPage() {
-  const selectors = [
-    ".a-price-whole",
-    "#priceblock_ourprice",
-    "#priceblock_dealprice",
-    ".a-offscreen",
-    "#corePrice_feature_div .a-price-whole"
-  ]
-  for (const sel of selectors) {
-    const el = document.querySelector(sel)
-    if (el) {
-      const text = el.innerText || el.textContent
-      const cleaned = text.replace(/[₹,. ]/g, "").trim()
-      const price = parseFloat(cleaned)
-      if (price > 0) return price
-    }
+  const el = document.querySelector(".a-price-whole")
+  if (el) {
+    const text = el.innerText || el.textContent
+    const cleaned = text.replace(/[₹,\s]/g, "").trim()
+    const price = parseFloat(cleaned)
+    if (price > 0) return price
   }
   return null
 }
