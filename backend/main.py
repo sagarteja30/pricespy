@@ -4,6 +4,9 @@ from pydantic import BaseModel
 import numpy as np
 import sqlite3
 from typing import Optional
+import requests
+from bs4 import BeautifulSoup
+import re
 
 app = FastAPI()
 
@@ -32,6 +35,46 @@ def init_db():
 
 init_db()
 
+def extract_asin(url):
+    patterns = [
+        r'/dp/([A-Z0-9]{10})',
+        r'/gp/product/([A-Z0-9]{10})',
+        r'/gp/aw/d/([A-Z0-9]{10})',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+def get_camel_history(asin):
+    try:
+        url = f"https://camelcamelcamel.com/product/{asin}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        res = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(res.content, "html.parser")
+
+        # Find price history data in the page scripts
+        scripts = soup.find_all("script")
+        prices = []
+
+        for script in scripts:
+            if script.string and "amazon" in str(script.string).lower():
+                # Extract price numbers from script data
+                numbers = re.findall(r'"y":(\d+\.?\d*)', str(script.string))
+                if numbers and len(numbers) > 5:
+                    prices = [float(n) for n in numbers if float(n) > 100]
+                    if len(prices) > 5:
+                        break
+
+        return prices[-30:] if prices else []
+
+    except Exception as e:
+        print(f"Camel error: {e}")
+        return []
+
 def save_price(url, title, price):
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
@@ -41,27 +84,42 @@ def save_price(url, title, price):
     conn.commit()
     conn.close()
 
-def get_history(url):
+def get_local_history(url):
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
-        "SELECT price FROM price_history WHERE url = ? ORDER BY scraped_at ASC",
-        (url,)
+        "SELECT price FROM price_history WHERE url LIKE ? ORDER BY scraped_at ASC",
+        (f"%{extract_asin(url) or url}%",)
     ).fetchall()
     conn.close()
     return [row[0] for row in rows]
 
 def predict(url, current_price):
-    history = get_history(url)
+    asin = extract_asin(url)
 
-    if len(history) < 3:
-        prices = history + [current_price]
+    # Try to get real historical data first
+    camel_prices = []
+    if asin:
+        camel_prices = get_camel_history(asin)
+        print(f"Camel prices found: {len(camel_prices)}")
+
+    local_prices = get_local_history(url)
+
+    # Combine all price sources
+    if camel_prices:
+        all_prices = camel_prices + local_prices + [current_price]
+    elif local_prices:
+        all_prices = local_prices + [current_price]
     else:
-        prices = history
+        all_prices = [current_price]
 
-    arr = np.array(prices, dtype=float)
+    arr = np.array(all_prices, dtype=float)
     x = np.arange(len(arr))
-    slope, intercept = np.polyfit(x, arr, 1)
-    predicted = slope * (len(arr) + 14) + intercept
+
+    if len(arr) >= 3:
+        slope, intercept = np.polyfit(x, arr, 1)
+        predicted = slope * (len(arr) + 14) + intercept
+    else:
+        predicted = current_price
 
     change = predicted - current_price
     pct = (change / current_price) * 100
@@ -77,6 +135,7 @@ def predict(url, current_price):
         reason = "Price is stable — safe to buy now"
 
     confidence = max(50, min(92, int(80 - abs(pct) * 1.5)))
+    days = len(all_prices)
 
     return {
         "predicted_price": round(float(predicted)),
@@ -87,7 +146,7 @@ def predict(url, current_price):
         "confidence": confidence,
         "best_price_30d": round(float(np.min(arr[-30:]))),
         "worst_price_30d": round(float(np.max(arr[-30:]))),
-        "days_tracked": len(prices)
+        "days_tracked": days
     }
 
 class PriceRequest(BaseModel):
@@ -111,4 +170,4 @@ async def analyze_price(req: PriceRequest):
 
 @app.get("/health")
 def health():
-    return {"status": "PriceSpy is running"}
+    return {"status": "PriceSpy running with real history"}
