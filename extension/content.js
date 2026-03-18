@@ -84,7 +84,7 @@ function createWidget(data) {
     </div>
   `
 
-  const tag = "300028-21"
+  const tag = "sagarteja30-21"
   const cleanUrl = window.location.href.split("?")[0]
   const affiliateUrl = cleanUrl + "?tag=" + tag
 
