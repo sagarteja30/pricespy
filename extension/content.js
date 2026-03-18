@@ -2,6 +2,16 @@ const API_URL = "https://web-production-21127.up.railway.app"
 
 console.log("PriceSpy: script loaded")
 
+function getUserId() {
+  let uid = localStorage.getItem("pricespy_uid")
+  if (!uid) {
+    uid = "user_" + Math.random().toString(36).substr(2, 9) + Date.now()
+    localStorage.setItem("pricespy_uid", uid)
+  }
+  return uid
+}
+
+const USER_ID = getUserId()
 
 function isProductPage() {
   const url = window.location.href
@@ -19,14 +29,11 @@ function isProductPage() {
 
 function getPriceFromPage() {
   const el = document.querySelector(".a-price-whole")
-  console.log("PriceSpy: price element found?", el)
   if (el) {
     const text = el.innerText || el.textContent
-    console.log("PriceSpy: raw price text:", text)
     const cleaned = text.replace(/[₹,.\s]/g, "").trim()
-    console.log("PriceSpy: cleaned price:", cleaned)
     const price = parseFloat(cleaned)
-    console.log("PriceSpy: final price:", price)
+    console.log("PriceSpy: price found:", price)
     if (price > 0) return price
   }
   return null
@@ -38,7 +45,7 @@ function getTitleFromPage() {
 }
 
 function createWidget(data) {
-  console.log("PriceSpy: creating widget with data:", data)
+  console.log("PriceSpy: creating widget:", data)
   const existing = document.getElementById("pricespy-widget")
   if (existing) existing.remove()
 
@@ -118,7 +125,6 @@ function createWidget(data) {
   console.log("PriceSpy: widget added to page")
 }
 
-
 function keepWidgetAlive() {
   const existing = document.getElementById("pricespy-widget")
   if (!existing && window._priceSpyData) {
@@ -132,7 +138,6 @@ async function analyzePage() {
 
   const price = getPriceFromPage()
   const title = getTitleFromPage()
-  console.log("PriceSpy: price =", price, "title =", title)
 
   if (!price) {
     console.log("PriceSpy: no price found, stopping")
@@ -144,23 +149,25 @@ async function analyzePage() {
     const res = await fetch(API_URL + "/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: window.location.href, price: price, title: title })
+      body: JSON.stringify({
+        url: window.location.href,
+        price: price,
+        title: title,
+        user_id: USER_ID
+      })
     })
-    console.log("PriceSpy: API response status:", res.status)
+    console.log("PriceSpy: status:", res.status)
     const data = await res.json()
-    console.log("PriceSpy: API data:", data)
-    
+    console.log("PriceSpy: data:", data)
+
     window._priceSpyData = data
     createWidget(data)
-    
-    // Keep checking every second if widget got removed
     setInterval(keepWidgetAlive, 1000)
-    
+
   } catch (err) {
     console.log("PriceSpy: ERROR:", err)
   }
 }
 
-// Try multiple times as page loads
 setTimeout(analyzePage, 2000)
 setTimeout(analyzePage, 5000)

@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import numpy as np
@@ -7,6 +7,7 @@ from typing import Optional
 import requests
 import re
 import os
+from datetime import datetime
 
 app = FastAPI()
 
@@ -18,7 +19,6 @@ app.add_middleware(
 )
 
 DB_PATH = "pricespy.db"
-KEEPA_KEY = os.getenv("KEEPA_KEY", "")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -29,6 +29,26 @@ def init_db():
             title TEXT,
             price REAL NOT NULL,
             scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT UNIQUE NOT NULL,
+            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            total_scans INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS scans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            product_title TEXT,
+            product_url TEXT,
+            price REAL,
+            recommendation TEXT,
+            scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     conn.commit()
@@ -48,48 +68,33 @@ def extract_asin(url):
             return match.group(1)
     return None
 
-def get_keepa_history(asin):
-    if not KEEPA_KEY:
-        return []
-    try:
-        url = f"https://api.keepa.com/product?key={KEEPA_KEY}&domain=10&asin={asin}&history=1"
-        res = requests.get(url, timeout=10)
-        data = res.json()
-
-        if not data.get("products"):
-            return []
-
-        product = data["products"][0]
-        csv = product.get("csv", [])
-
-        # Index 0 = Amazon price history
-        # Format: [timestamp, price, timestamp, price, ...]
-        if not csv or not csv[0]:
-            return []
-
-        raw = csv[0]
-        prices = []
-
-        for i in range(1, len(raw), 2):
-            if raw[i] and raw[i] > 0:
-                # Keepa stores prices in cents (Indian paise)
-                price = raw[i] / 100
-                if price > 100:
-                    prices.append(price)
-
-        # Return last 60 data points
-        return prices[-60:] if prices else []
-
-    except Exception as e:
-        print(f"Keepa error: {e}")
-        return []
-
 def save_price(url, title, price):
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
         "INSERT INTO price_history (url, title, price) VALUES (?, ?, ?)",
         (url, title, price)
     )
+    conn.commit()
+    conn.close()
+
+def track_user(user_id, title, url, price, recommendation):
+    conn = sqlite3.connect(DB_PATH)
+    
+    # Add user if new, update if existing
+    conn.execute("""
+        INSERT INTO users (user_id, total_scans)
+        VALUES (?, 1)
+        ON CONFLICT(user_id) DO UPDATE SET
+            last_seen = CURRENT_TIMESTAMP,
+            total_scans = total_scans + 1
+    """, (user_id,))
+
+    # Save scan record
+    conn.execute("""
+        INSERT INTO scans (user_id, product_title, product_url, price, recommendation)
+        VALUES (?, ?, ?, ?, ?)
+    """, (user_id, title, url, price, recommendation))
+
     conn.commit()
     conn.close()
 
@@ -104,17 +109,9 @@ def get_local_history(asin):
 
 def predict(url, current_price):
     asin = extract_asin(url)
-    print(f"ASIN: {asin}")
-
-    keepa_prices = get_keepa_history(asin) if asin else []
     local_prices = get_local_history(asin) if asin else []
 
-    print(f"Keepa prices: {len(keepa_prices)}")
-    print(f"Local prices: {len(local_prices)}")
-
-    if keepa_prices:
-        all_prices = keepa_prices + local_prices + [current_price]
-    elif local_prices:
+    if local_prices:
         all_prices = local_prices + [current_price]
     else:
         all_prices = [current_price]
@@ -125,11 +122,6 @@ def predict(url, current_price):
         x = np.arange(len(arr))
         slope, intercept = np.polyfit(x, arr, 1)
         predicted = slope * (len(arr) + 14) + intercept
-
-        recent_avg = float(np.mean(arr[-7:]))
-        older_avg = float(np.mean(arr[:7]))
-        momentum = recent_avg - older_avg
-        predicted = predicted + (momentum * 0.3)
     else:
         predicted = current_price
 
@@ -146,18 +138,17 @@ def predict(url, current_price):
     elif pct > 3:
         rec = "BUY NOW"
         reason = f"Price rising — buy before it goes up Rs.{abs(change):.0f}"
-    elif current_price <= (min_price + price_range * 0.2):
+    elif price_range > 500 and current_price <= (min_price + price_range * 0.2):
         rec = "BUY NOW"
-        reason = f"Near 30-day low — great time to buy"
-    elif current_price >= (max_price - price_range * 0.2):
+        reason = "Near 30-day low — great time to buy"
+    elif price_range > 500 and current_price >= (max_price - price_range * 0.2):
         rec = "WAIT"
-        reason = f"Near 30-day high — price may drop soon"
+        reason = "Near 30-day high — price may drop soon"
     else:
         rec = "BUY NOW"
         reason = "Price is stable — safe to buy now"
 
     confidence = min(92, max(50, 50 + len(all_prices)))
-    days = len(all_prices)
 
     return {
         "predicted_price": round(float(predicted)),
@@ -168,13 +159,14 @@ def predict(url, current_price):
         "confidence": confidence,
         "best_price_30d": round(min_price),
         "worst_price_30d": round(max_price),
-        "days_tracked": days
+        "days_tracked": len(all_prices)
     }
 
 class PriceRequest(BaseModel):
     url: str
     price: Optional[float] = None
     title: Optional[str] = "Unknown Product"
+    user_id: Optional[str] = "anonymous"
 
 @app.post("/analyze")
 async def analyze_price(req: PriceRequest):
@@ -184,6 +176,15 @@ async def analyze_price(req: PriceRequest):
     save_price(req.url, req.title, req.price)
     prediction = predict(req.url, req.price)
 
+    # Track this user
+    track_user(
+        req.user_id,
+        req.title,
+        req.url,
+        req.price,
+        prediction["recommendation"]
+    )
+
     return {
         "product": req.title,
         "current_price": round(req.price),
@@ -192,4 +193,65 @@ async def analyze_price(req: PriceRequest):
 
 @app.get("/health")
 def health():
-    return {"status": "PriceSpy running with Keepa history"}
+    return {"status": "PriceSpy running"}
+
+@app.get("/dashboard")
+def dashboard():
+    conn = sqlite3.connect(DB_PATH)
+    
+    total_users = conn.execute(
+        "SELECT COUNT(*) FROM users"
+    ).fetchone()[0]
+    
+    total_scans = conn.execute(
+        "SELECT COUNT(*) FROM scans"
+    ).fetchone()[0]
+    
+    today_scans = conn.execute(
+        "SELECT COUNT(*) FROM scans WHERE date(scanned_at) = date('now')"
+    ).fetchone()[0]
+
+    today_users = conn.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM scans WHERE date(scanned_at) = date('now')"
+    ).fetchone()[0]
+
+    top_products = conn.execute("""
+        SELECT product_title, COUNT(*) as views, AVG(price) as avg_price
+        FROM scans
+        GROUP BY product_title
+        ORDER BY views DESC
+        LIMIT 10
+    """).fetchall()
+
+    recent_users = conn.execute("""
+        SELECT user_id, total_scans, first_seen, last_seen
+        FROM users
+        ORDER BY last_seen DESC
+        LIMIT 20
+    """).fetchall()
+
+    conn.close()
+
+    return {
+        "total_users": total_users,
+        "total_scans": total_scans,
+        "today_scans": today_scans,
+        "today_active_users": today_users,
+        "top_products": [
+            {
+                "title": row[0],
+                "views": row[1],
+                "avg_price": round(row[2])
+            }
+            for row in top_products
+        ],
+        "recent_users": [
+            {
+                "user_id": row[0],
+                "total_scans": row[1],
+                "first_seen": row[2],
+                "last_seen": row[3]
+            }
+            for row in recent_users
+        ]
+    }
