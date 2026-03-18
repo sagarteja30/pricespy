@@ -11,8 +11,9 @@ function getPriceFromPage() {
   const el = document.querySelector(".a-price-whole")
   if (el) {
     const text = el.innerText || el.textContent
-    const cleaned = text.replace(/[₹,\s]/g, "").trim()
+    const cleaned = text.replace(/[₹,.\s]/g, "").trim()
     const price = parseFloat(cleaned)
+    console.log("PriceSpy found price:", price)
     if (price > 0) return price
   }
   return null
