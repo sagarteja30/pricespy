@@ -1,13 +1,11 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import numpy as np
-import sqlite3
 from typing import Optional
-import requests
 import re
 import os
-from datetime import datetime
+import psycopg2
 
 app = FastAPI()
 
@@ -18,43 +16,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_PATH = "pricespy.db"
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS price_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            url TEXT NOT NULL,
-            title TEXT,
-            price REAL NOT NULL,
-            scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT UNIQUE NOT NULL,
-            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            total_scans INTEGER DEFAULT 0
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS scans (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT,
-            product_title TEXT,
-            product_url TEXT,
-            price REAL,
-            recommendation TEXT,
-            scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-init_db()
+def get_db():
+    return psycopg2.connect(DATABASE_URL)
 
 def extract_asin(url):
     patterns = [
@@ -69,43 +34,55 @@ def extract_asin(url):
     return None
 
 def save_price(url, title, price):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        "INSERT INTO price_history (url, title, price) VALUES (?, ?, ?)",
-        (url, title, price)
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO price_history (url, title, price) VALUES (%s, %s, %s)",
+            (url, title, price)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"save_price error: {e}")
 
 def track_user(user_id, title, url, price, recommendation):
-    conn = sqlite3.connect(DB_PATH)
-    
-    # Add user if new, update if existing
-    conn.execute("""
-        INSERT INTO users (user_id, total_scans)
-        VALUES (?, 1)
-        ON CONFLICT(user_id) DO UPDATE SET
-            last_seen = CURRENT_TIMESTAMP,
-            total_scans = total_scans + 1
-    """, (user_id,))
-
-    # Save scan record
-    conn.execute("""
-        INSERT INTO scans (user_id, product_title, product_url, price, recommendation)
-        VALUES (?, ?, ?, ?, ?)
-    """, (user_id, title, url, price, recommendation))
-
-    conn.commit()
-    conn.close()
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO users (user_id, total_scans)
+            VALUES (%s, 1)
+            ON CONFLICT(user_id) DO UPDATE SET
+                last_seen = NOW(),
+                total_scans = users.total_scans + 1
+        """, (user_id,))
+        cur.execute("""
+            INSERT INTO scans (user_id, product_title, product_url, price, recommendation)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (user_id, title, url, price, recommendation))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"track_user error: {e}")
 
 def get_local_history(asin):
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(
-        "SELECT price FROM price_history WHERE url LIKE ? ORDER BY scraped_at ASC",
-        (f"%{asin}%",)
-    ).fetchall()
-    conn.close()
-    return [row[0] for row in rows]
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT price FROM price_history WHERE url LIKE %s ORDER BY scraped_at ASC",
+            (f"%{asin}%",)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return [row[0] for row in rows]
+    except Exception as e:
+        print(f"get_history error: {e}")
+        return []
 
 def predict(url, current_price):
     asin = extract_asin(url)
@@ -175,8 +152,6 @@ async def analyze_price(req: PriceRequest):
 
     save_price(req.url, req.title, req.price)
     prediction = predict(req.url, req.price)
-
-    # Track this user
     track_user(
         req.user_id,
         req.title,
@@ -193,65 +168,72 @@ async def analyze_price(req: PriceRequest):
 
 @app.get("/health")
 def health():
-    return {"status": "PriceSpy running"}
+    return {"status": "PriceSpy running with Supabase"}
 
 @app.get("/dashboard")
 def dashboard():
-    conn = sqlite3.connect(DB_PATH)
-    
-    total_users = conn.execute(
-        "SELECT COUNT(*) FROM users"
-    ).fetchone()[0]
-    
-    total_scans = conn.execute(
-        "SELECT COUNT(*) FROM scans"
-    ).fetchone()[0]
-    
-    today_scans = conn.execute(
-        "SELECT COUNT(*) FROM scans WHERE date(scanned_at) = date('now')"
-    ).fetchone()[0]
+    try:
+        conn = get_db()
+        cur = conn.cursor()
 
-    today_users = conn.execute(
-        "SELECT COUNT(DISTINCT user_id) FROM scans WHERE date(scanned_at) = date('now')"
-    ).fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM users")
+        total_users = cur.fetchone()[0]
 
-    top_products = conn.execute("""
-        SELECT product_title, COUNT(*) as views, AVG(price) as avg_price
-        FROM scans
-        GROUP BY product_title
-        ORDER BY views DESC
-        LIMIT 10
-    """).fetchall()
+        cur.execute("SELECT COUNT(*) FROM scans")
+        total_scans = cur.fetchone()[0]
 
-    recent_users = conn.execute("""
-        SELECT user_id, total_scans, first_seen, last_seen
-        FROM users
-        ORDER BY last_seen DESC
-        LIMIT 20
-    """).fetchall()
+        cur.execute(
+            "SELECT COUNT(*) FROM scans WHERE DATE(scanned_at) = CURRENT_DATE"
+        )
+        today_scans = cur.fetchone()[0]
 
-    conn.close()
+        cur.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM scans WHERE DATE(scanned_at) = CURRENT_DATE"
+        )
+        today_users = cur.fetchone()[0]
 
-    return {
-        "total_users": total_users,
-        "total_scans": total_scans,
-        "today_scans": today_scans,
-        "today_active_users": today_users,
-        "top_products": [
-            {
-                "title": row[0],
-                "views": row[1],
-                "avg_price": round(row[2])
-            }
-            for row in top_products
-        ],
-        "recent_users": [
-            {
-                "user_id": row[0],
-                "total_scans": row[1],
-                "first_seen": row[2],
-                "last_seen": row[3]
-            }
-            for row in recent_users
-        ]
-    }
+        cur.execute("""
+            SELECT product_title, COUNT(*) as views, AVG(price) as avg_price
+            FROM scans
+            GROUP BY product_title
+            ORDER BY views DESC
+            LIMIT 10
+        """)
+        top_products = cur.fetchall()
+
+        cur.execute("""
+            SELECT user_id, total_scans, first_seen, last_seen
+            FROM users
+            ORDER BY last_seen DESC
+            LIMIT 20
+        """)
+        recent_users = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "total_users": total_users,
+            "total_scans": total_scans,
+            "today_scans": today_scans,
+            "today_active_users": today_users,
+            "top_products": [
+                {
+                    "title": row[0],
+                    "views": row[1],
+                    "avg_price": round(row[2])
+                }
+                for row in top_products
+            ],
+            "recent_users": [
+                {
+                    "user_id": row[0],
+                    "total_scans": row[1],
+                    "first_seen": str(row[2]),
+                    "last_seen": str(row[3])
+                }
+                for row in recent_users
+            ]
+        }
+    except Exception as e:
+        return {"error": str(e)}
