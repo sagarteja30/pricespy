@@ -2,7 +2,7 @@
   'use strict';
 
   const API_URLS = [
-    "https://web-production-c7f35.up.railway.app",
+    "https://pricespy-production-c1dd.up.railway.app/",
     "https://pricespy-api.onrender.com",
     window.location.origin
   ];
@@ -187,7 +187,7 @@
 
   async function tryApiCall(url, payload) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 30000);
 
     try {
       const res = await fetch(url + "/analyze", {

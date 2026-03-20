@@ -92,7 +92,7 @@ class AnalyzeRequest(BaseModel):
 
 
 def get_db() -> Conn:
-    return psycopg2.connect(settings.database_url)
+    return psycopg2.connect(settings.database_url, connect_timeout=5)
 
 
 def extract_asin(url: str) -> str | None:
