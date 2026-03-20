@@ -1,9 +1,13 @@
+import random
+import time
+from datetime import datetime
+
 import requests
 from bs4 import BeautifulSoup
-import psycopg2
-from datetime import datetime
-import time
-import random
+
+from backend.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -12,7 +16,8 @@ HEADERS = {
     "Accept-Language": "en-IN,en;q=0.9",
 }
 
-def scrape_amazon_price(url):
+
+def scrape_amazon_price(url: str) -> dict | None:
     try:
         time.sleep(random.uniform(2, 5))
         res = requests.get(url, headers=HEADERS, timeout=10)
@@ -27,6 +32,7 @@ def scrape_amazon_price(url):
         title_elem = soup.find("span", {"id": "productTitle"})
 
         if not price_elem:
+            logger.warning(f"No price element found for {url}")
             return None
 
         price_text = price_elem.get_text()
@@ -41,18 +47,31 @@ def scrape_amazon_price(url):
             "url": url,
             "title": title_elem.get_text().strip() if title_elem else "Unknown",
             "price": price,
-            "scraped_at": datetime.utcnow()
+            "scraped_at": datetime.utcnow(),
         }
 
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Request error scraping {url}: {e}")
+        return None
     except Exception as e:
-        print(f"Scraping error: {e}")
+        logger.error(f"Scraping error for {url}: {e}")
         return None
 
-def save_price(data, conn):
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO price_history (url, title, price, scraped_at)
-        VALUES (%s, %s, %s, %s)
-    """, (data["url"], data["title"], data["price"], data["scraped_at"]))
-    conn.commit()
-    cur.close()
+
+def save_price(data: dict, conn) -> bool:
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO price_history (url, title, price, scraped_at)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (data["url"], data["title"], data["price"], data["scraped_at"]),
+        )
+        conn.commit()
+        cur.close()
+        logger.debug(f"Saved price for {data['title'][:40]}: Rs.{data['price']}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save price: {e}")
+        return False

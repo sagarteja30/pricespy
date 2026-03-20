@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PriceSpy - AI Price Prediction</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card-shadow {
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+        }
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .recommendation-wait { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+        .recommendation-buy { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+        .recommendation-tracking { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-2xl">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-white mb-2">PriceSpy AI</h1>
+            <p class="text-white/80">Predict Amazon prices with AI</p>
+        </div>
+
+        <!-- Input Card -->
+        <div class="bg-white rounded-2xl card-shadow p-6 mb-6">
+            <form id="predictForm" class="space-y-4">
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Product URL</label>
+                    <input 
+                        type="url" 
+                        id="productUrl" 
+                        placeholder="https://www.amazon.in/dp/B09V3KXJPB"
+                        required
+                        class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none transition"
+                    >
+                </div>
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Current Price (₹)</label>
+                    <input 
+                        type="number" 
+                        id="currentPrice" 
+                        placeholder="1499"
+                        required
+                        min="1"
+                        class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none transition"
+                    >
+                </div>
+                <button 
+                    type="submit"
+                    class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-6 rounded-xl transition transform hover:scale-105"
+                >
+                    Get Prediction
+                </button>
+            </form>
+            
+            <!-- Quick Examples -->
+            <div class="mt-4 pt-4 border-t border-gray-100">
+                <p class="text-sm text-gray-500 mb-2">Try these examples:</p>
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="fillExample('https://www.amazon.in/dp/B09V3KXJPB', '1499')" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-full transition">B09V3KXJPB</button>
+                    <button onclick="fillExample('https://www.amazon.in/dp/B08N5WRWNW', '84900')" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-full transition">MacBook</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading" class="hidden bg-white rounded-2xl card-shadow p-8 text-center">
+            <div class="pulse text-4xl mb-4">🔮</div>
+            <p class="text-gray-600">Analyzing prices...</p>
+        </div>
+
+        <!-- Result Card -->
+        <div id="result" class="hidden bg-white rounded-2xl card-shadow overflow-hidden">
+            <!-- Recommendation Banner -->
+            <div id="recommendationBanner" class="text-white text-center py-6 px-4">
+                <div class="text-5xl mb-2" id="recommendationIcon">📊</div>
+                <div class="text-3xl font-bold" id="recommendationText">LOADING...</div>
+                <div class="text-white/90 mt-2" id="reasonText"></div>
+            </div>
+            
+            <!-- Price Details -->
+            <div class="p-6">
+                <div class="grid grid-cols-2 gap-4 mb-6">
+                    <div class="bg-gray-50 rounded-xl p-4 text-center">
+                        <div class="text-sm text-gray-500 mb-1">Current Price</div>
+                        <div class="text-2xl font-bold" id="currentPriceDisplay">₹0</div>
+                    </div>
+                    <div class="bg-gray-50 rounded-xl p-4 text-center">
+                        <div class="text-sm text-gray-500 mb-1">Predicted (14 days)</div>
+                        <div class="text-2xl font-bold" id="predictedPriceDisplay">₹0</div>
+                    </div>
+                </div>
+                
+                <!-- Price Change -->
+                <div id="priceChangeCard" class="bg-blue-50 rounded-xl p-4 mb-6">
+                    <div class="flex items-center justify-between">
+                        <span class="text-gray-600">Expected Change</span>
+                        <span class="font-bold" id="priceChangeDisplay">₹0 (0%)</span>
+                    </div>
+                </div>
+                
+                <!-- 30-Day Range -->
+                <div class="grid grid-cols-2 gap-4 mb-6">
+                    <div class="bg-green-50 rounded-xl p-4 text-center">
+                        <div class="text-sm text-green-600 mb-1">30-Day Low</div>
+                        <div class="text-xl font-bold text-green-700" id="lowPriceDisplay">₹0</div>
+                    </div>
+                    <div class="bg-red-50 rounded-xl p-4 text-center">
+                        <div class="text-sm text-red-600 mb-1">30-Day High</div>
+                        <div class="text-xl font-bold text-red-700" id="highPriceDisplay">₹0</div>
+                    </div>
+                </div>
+                
+                <!-- Confidence & Tracking -->
+                <div class="flex justify-between items-center text-sm text-gray-500">
+                    <div>Confidence: <span id="confidenceDisplay">0%</span></div>
+                    <div>Days tracked: <span id="daysTrackedDisplay">0</span></div>
+                </div>
+                
+                <!-- Buy Link -->
+                <a id="buyLink" href="#" target="_blank" class="block mt-6 bg-amber-400 hover:bg-amber-500 text-gray-900 font-semibold py-3 px-6 rounded-xl text-center transition">
+                    🛒 Buy Now on Amazon
+                </a>
+            </div>
+        </div>
+
+        <!-- Error Card -->
+        <div id="error" class="hidden bg-white rounded-2xl card-shadow p-6 text-center">
+            <div class="text-4xl mb-4">😕</div>
+            <p class="text-gray-600" id="errorMessage">Something went wrong</p>
+        </div>
+
+        <!-- Features -->
+        <div class="mt-8 grid grid-cols-3 gap-4 text-white text-center">
+            <div class="bg-white/10 backdrop-blur rounded-xl p-4">
+                <div class="text-2xl mb-2">📈</div>
+                <div class="font-semibold">Trend Analysis</div>
+            </div>
+            <div class="bg-white/10 backdrop-blur rounded-xl p-4">
+                <div class="text-2xl mb-2">📊</div>
+                <div class="font-semibold">Price History</div>
+            </div>
+            <div class="bg-white/10 backdrop-blur rounded-xl p-4">
+                <div class="text-2xl mb-2">⏰</div>
+                <div class="font-semibold">14-Day Forecast</div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="text-center mt-8 text-white/60 text-sm">
+            <p>Install the Chrome extension for real-time predictions while browsing Amazon</p>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin;
+        
+        function fillExample(url, price) {
+            document.getElementById('productUrl').value = url;
+            document.getElementById('currentPrice').value = price;
+        }
+
+        function showLoading() {
+            document.getElementById('predictForm').classList.add('opacity-50', 'pointer-events-none');
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('result').classList.add('hidden');
+            document.getElementById('error').classList.add('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('predictForm').classList.remove('opacity-50', 'pointer-events-none');
+            document.getElementById('loading').classList.add('hidden');
+        }
+
+        function showResult(data) {
+            hideLoading();
+            document.getElementById('result').classList.remove('hidden');
+            
+            // Set recommendation
+            const banner = document.getElementById('recommendationBanner');
+            const icon = document.getElementById('recommendationIcon');
+            const text = document.getElementById('recommendationText');
+            
+            banner.className = 'text-white text-center py-6 px-4';
+            
+            if (data.recommendation === 'WAIT') {
+                banner.classList.add('recommendation-wait');
+                icon.textContent = '📉';
+                text.textContent = 'WAIT';
+            } else if (data.recommendation === 'BUY NOW') {
+                banner.classList.add('recommendation-buy');
+                icon.textContent = '📈';
+                text.textContent = 'BUY NOW';
+            } else {
+                banner.classList.add('recommendation-tracking');
+                icon.textContent = '🔄';
+                text.textContent = 'TRACKING';
+            }
+            
+            document.getElementById('reasonText').textContent = data.reason;
+            document.getElementById('currentPriceDisplay').textContent = `₹${data.current_price.toLocaleString()}`;
+            document.getElementById('predictedPriceDisplay').textContent = `₹${data.predicted_price.toLocaleString()}`;
+            
+            const changeText = `${data.price_change >= 0 ? '+' : ''}${data.price_change.toLocaleString()} (${data.pct_change >= 0 ? '+' : ''}${data.pct_change}%)`;
+            document.getElementById('priceChangeDisplay').textContent = changeText;
+            
+            const changeColor = data.price_change >= 0 ? 'text-red-600' : 'text-green-600';
+            document.getElementById('priceChangeDisplay').className = `font-bold ${changeColor}`;
+            
+            document.getElementById('lowPriceDisplay').textContent = `₹${data.best_price_30d.toLocaleString()}`;
+            document.getElementById('highPriceDisplay').textContent = `₹${data.worst_price_30d.toLocaleString()}`;
+            document.getElementById('confidenceDisplay').textContent = `${data.confidence}%`;
+            document.getElementById('daysTrackedDisplay').textContent = data.days_tracked;
+            
+            // Set buy link
+            const cleanUrl = document.getElementById('productUrl').value.split('?')[0];
+            document.getElementById('buyLink').href = cleanUrl + '?tag=sagarteja30-21';
+        }
+
+        function showError(message) {
+            hideLoading();
+            document.getElementById('error').classList.remove('hidden');
+            document.getElementById('errorMessage').textContent = message;
+        }
+
+        document.getElementById('predictForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const url = document.getElementById('productUrl').value;
+            const price = parseFloat(document.getElementById('currentPrice').value);
+            
+            if (!url || !price) {
+                showError('Please enter both URL and price');
+                return;
+            }
+            
+            if (!url.includes('amazon.') && !url.includes('flipkart.')) {
+                showError('Please enter a valid Amazon or Flipkart URL');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                const response = await fetch(`${API_URL}/predict`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        url: url,
+                        current_price: price
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Prediction failed');
+                }
+                
+                const data = await response.json();
+                showResult(data);
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to get prediction. Please try again.');
+            }
+        });
+    </script>
+</body>
+</html>

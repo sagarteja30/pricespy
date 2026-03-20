@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PriceSpy AI</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            width: 320px; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .header {
+            background: white;
+            padding: 16px;
+            text-align: center;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .header h1 { 
+            font-size: 20px; 
+            color: #1f2937;
+            margin-bottom: 4px;
+        }
+        .header p { font-size: 12px; color: #6b7280; }
+        
+        .content { padding: 16px; }
+        
+        .status {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+        }
+        .status-icon { font-size: 40px; margin-bottom: 8px; }
+        .status-text { color: #6b7280; font-size: 14px; }
+        
+        .result {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            display: none;
+        }
+        .result.show { display: block; }
+        
+        .recommendation {
+            text-align: center;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        .recommendation.wait { background: #dcfce7; color: #166534; }
+        .recommendation.buy { background: #fee2e2; color: #991b1b; }
+        .recommendation.tracking { background: #fef3c7; color: #92400e; }
+        
+        .recommendation .big { font-size: 24px; font-weight: bold; }
+        .recommendation .reason { font-size: 12px; margin-top: 4px; }
+        
+        .prices {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .price-box {
+            background: #f9fafb;
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .price-box .label { font-size: 11px; color: #9ca3af; }
+        .price-box .value { font-size: 16px; font-weight: bold; margin-top: 4px; }
+        
+        .meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #9ca3af;
+            margin-bottom: 12px;
+        }
+        
+        .buy-btn {
+            display: block;
+            background: #ff9900;
+            color: white;
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .buy-btn:hover { background: #e68a00; }
+        
+        .footer {
+            padding: 12px 16px;
+            text-align: center;
+            font-size: 11px;
+            color: rgba(255,255,255,0.7);
+        }
+        .footer a { color: white; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔮 PriceSpy AI</h1>
+        <p>Smart price predictions</p>
+    </div>
+    
+    <div class="content">
+        <div class="status" id="status">
+            <div class="status-icon">⏳</div>
+            <div class="status-text">Analyzing this product...</div>
+        </div>
+        
+        <div class="result" id="result">
+            <div class="recommendation" id="recommendation">
+                <div class="big" id="recText">BUY NOW</div>
+                <div class="reason" id="recReason">Price is stable</div>
+            </div>
+            
+            <div class="prices">
+                <div class="price-box">
+                    <div class="label">Current</div>
+                    <div class="value" id="currentPrice">₹0</div>
+                </div>
+                <div class="price-box">
+                    <div class="label">In 14 days</div>
+                    <div class="value" id="predictedPrice">₹0</div>
+                </div>
+            </div>
+            
+            <div class="meta">
+                <span>Confidence: <span id="confidence">0%</span></span>
+                <span><span id="daysTracked">0</span> days tracked</span>
+            </div>
+            
+            <a href="#" class="buy-btn" id="buyLink">Buy Now on Amazon</a>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <a href="/" target="_blank">Open PriceSpy Web App →</a>
+    </div>
+    
+    <script>
+        async function checkCurrentTab() {
+            try {
+                const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                const url = tab.url;
+                
+                if (url && (url.includes('amazon.') || url.includes('flipkart.'))) {
+                    document.getElementById('status').innerHTML = `
+                        <div class="status-icon">🔍</div>
+                        <div class="status-text">Visit the product page and look for the PriceSpy widget!</div>
+                    `;
+                } else {
+                    document.getElementById('status').innerHTML = `
+                        <div class="status-icon">🏪</div>
+                        <div class="status-text">Visit an Amazon or Flipkart product page to see predictions</div>
+                    `;
+                }
+            } catch (e) {
+                document.getElementById('status').innerHTML = `
+                    <div class="status-icon">🔮</div>
+                    <div class="status-text">Navigate to a product page to get predictions</div>
+                `;
+            }
+        }
+        
+        checkCurrentTab();
+    </script>
+</body>
+</html>

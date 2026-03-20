@@ -1,15 +1,18 @@
-from dotenv import load_dotenv
-load_dotenv()
-
-import requests
-from bs4 import BeautifulSoup
-import psycopg2
 import os
-import time
 import random
+import time
 from datetime import datetime
 
+import psycopg2
+import requests
+from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 
+load_dotenv()
+
+from backend.logging_config import get_logger  # noqa: E402
+
+logger = get_logger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -27,29 +30,32 @@ BESTSELLER_URLS = [
     "https://www.amazon.in/gp/bestsellers/sports/",
 ]
 
+
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
-def get_bestseller_asins(category_url):
+
+def get_bestseller_asins(category_url: str) -> list[str]:
     try:
         time.sleep(random.uniform(2, 4))
         res = requests.get(category_url, headers=HEADERS, timeout=15)
         soup = BeautifulSoup(res.content, "html.parser")
-        
+
         asins = []
         items = soup.find_all("div", {"data-asin": True})
         for item in items:
             asin = item.get("data-asin")
             if asin and len(asin) == 10:
                 asins.append(asin)
-        
-        print(f"Found {len(asins)} products in {category_url}")
+
+        logger.info(f"Found {len(asins)} products in {category_url}")
         return asins[:50]
     except Exception as e:
-        print(f"Error getting bestsellers: {e}")
+        logger.error(f"Error getting bestsellers from {category_url}: {e}")
         return []
 
-def scrape_product_price(asin):
+
+def scrape_product_price(asin: str) -> dict | None:
     try:
         url = f"https://www.amazon.in/dp/{asin}"
         time.sleep(random.uniform(3, 6))
@@ -60,10 +66,11 @@ def scrape_product_price(asin):
         title_elem = soup.find("span", {"id": "productTitle"})
 
         if not price_elem:
+            logger.warning(f"No price found for ASIN {asin}")
             return None
 
         price_text = price_elem.get_text()
-        cleaned = price_text.replace("₹","").replace(",","").replace(".","").strip()
+        cleaned = price_text.replace("₹", "").replace(",", "").replace(".", "").strip()
         price = float(cleaned[:7])
 
         title = title_elem.get_text().strip()[:80] if title_elem else "Unknown"
@@ -73,41 +80,44 @@ def scrape_product_price(asin):
                 "asin": asin,
                 "url": url,
                 "title": title,
-                "price": price
+                "price": price,
             }
         return None
 
     except Exception as e:
-        print(f"Error scraping {asin}: {e}")
+        logger.error(f"Error scraping ASIN {asin}: {e}")
         return None
 
-def save_price(url, title, price):
+
+def save_price(url: str, title: str, price: float) -> bool:
     try:
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
             "INSERT INTO price_history (url, title, price) VALUES (%s, %s, %s)",
-            (url, title, price)
+            (url, title, price),
         )
         conn.commit()
         cur.close()
         conn.close()
-        print(f"Saved: {title[:40]} — Rs.{price}")
+        logger.info(f"Saved: {title[:40]} — Rs.{price}")
+        return True
     except Exception as e:
-        print(f"DB error: {e}")
+        logger.error(f"DB error saving price: {e}")
+        return False
 
-def collect_all_prices():
-    print(f"Starting collection at {datetime.now()}")
-    
+
+def collect_all_prices() -> dict:
+    logger.info(f"Starting collection at {datetime.now()}")
+
     all_asins = []
     for url in BESTSELLER_URLS:
         asins = get_bestseller_asins(url)
         all_asins.extend(asins)
         time.sleep(2)
 
-    # Remove duplicates
     all_asins = list(set(all_asins))
-    print(f"Total unique products to track: {len(all_asins)}")
+    logger.info(f"Total unique products to track: {len(all_asins)}")
 
     success = 0
     for asin in all_asins:
@@ -117,19 +127,9 @@ def collect_all_prices():
             success += 1
         time.sleep(random.uniform(2, 5))
 
-    print(f"Collection complete. Saved {success}/{len(all_asins)} prices")
+    logger.info(f"Collection complete. Saved {success}/{len(all_asins)} prices")
+    return {"success": success, "total": len(all_asins)}
+
 
 if __name__ == "__main__":
     collect_all_prices()
-
-from apscheduler.schedulers.blocking import BlockingScheduler
-
-if __name__ == "__main__":
-    # Run once immediately
-    collect_all_prices()
-    
-    # Then run every 6 hours
-    scheduler = BlockingScheduler()
-    scheduler.add_job(collect_all_prices, 'interval', hours=6)
-    print("Scheduler started — collecting every 6 hours")
-    scheduler.start()
