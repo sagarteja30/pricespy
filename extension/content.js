@@ -2,7 +2,7 @@
   'use strict';
 
   const API_URLS = [
-    "https://pricespy-production-c1dd.up.railway.app/",
+    "https://pricespy-production-c1dd.up.railway.app",
     "https://pricespy-api.onrender.com",
     window.location.origin
   ];
@@ -190,7 +190,8 @@
     const timeout = setTimeout(() => controller.abort(), 30000);
 
     try {
-      const res = await fetch(url + "/analyze", {
+      const apiUrl = url.replace(/\/$/, "");
+      const res = await fetch(apiUrl + "/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
