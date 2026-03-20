@@ -2,7 +2,7 @@
   'use strict';
 
   const API_URLS = [
-    "https://web-production-21127.up.railway.app",
+    "https://web-production-c7f35.up.railway.app/",
     "https://pricespy-api.onrender.com",
     window.location.origin
   ];
